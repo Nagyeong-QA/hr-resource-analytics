@@ -1,0 +1,9 @@
+user_id,name,team,part,tft,role,active
+U001,Alex,Platform,Backend,,user,1
+U002,Bella,Platform,Frontend,,user,1
+U003,Chris,Data,Analytics,,user,1
+U004,Dana,Data,Platform,,user,1
+U005,Evan,Quality,Process,,user,1
+U006,Fiona,Quality,Validation,,user,1
+U007,George,Product,Planning,TFT_A,user,1
+U008,Helen,Product,Operations,TFT_A,user,1
