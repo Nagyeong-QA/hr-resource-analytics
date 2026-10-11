@@ -330,6 +330,74 @@ def monthly_resource_chart(monthly: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def team_worktime_chart(team_report: pd.DataFrame, per_person_day: bool = False) -> go.Figure:
+    """Team work mix (stacked) + overtime (overlay; never double counted).
+
+    Stacked bars = project + general work (non-leave hours).
+    Right-axis line = OT per recorded person-day, NOT extra time added to the bars.
+    """
+    plot = team_report.sort_values("team").copy()
+    plot["ot_hours_per_person_day"] = (
+        plot["overtime_hours"] / plot["person_days"].clip(lower=1)
+    )
+    if per_person_day:
+        plot["project_plot"] = plot["project_hours"] / plot["person_days"].clip(lower=1)
+        plot["general_plot"] = plot["general_hours"] / plot["person_days"].clip(lower=1)
+        left_title = "인당 기록일 기준 평균 업무시간 (h/인일)"
+    else:
+        plot["project_plot"] = plot["project_hours"]
+        plot["general_plot"] = plot["general_hours"]
+        left_title = "팀 총 업무시간 (h)"
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Bar(
+            x=plot["team"], y=plot["project_plot"], name="프로젝트 업무",
+            marker_color="#5278D9",
+            hovertemplate="%{x}<br>프로젝트 업무 %{y:.2f}h<extra></extra>",
+        ), secondary_y=False,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=plot["team"], y=plot["general_plot"], name="일반업무",
+            marker_color="#E2B23A",
+            hovertemplate="%{x}<br>일반업무 %{y:.2f}h<extra></extra>",
+        ), secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=plot["team"], y=plot["ot_hours_per_person_day"],
+            name="인당 일평균 초과근무", mode="lines+markers+text",
+            text=[f"{v:.2f}h" for v in plot["ot_hours_per_person_day"]],
+            textposition="top center", textfont=dict(size=11, color="#D94853"),
+            line=dict(color="#E9555E", width=3),
+            marker=dict(size=9, color="#FFFFFF", line=dict(color="#E9555E", width=2.5)),
+            customdata=plot[["overtime_hours", "headcount", "person_days"]].to_numpy(),
+            hovertemplate=("%{x}<br>인당 일평균 OT %{y:.2f}h"
+                           "<br>팀 총 OT %{customdata[0]:.1f}h"
+                           "<br>기록 인원 %{customdata[1]:.0f}명"
+                           "<br>기록 인일 %{customdata[2]:.0f}인일<extra></extra>"),
+        ), secondary_y=True,
+    )
+    total_bar = plot["project_plot"] + plot["general_plot"]
+    left_max = max(8 if per_person_day else 10, float(total_bar.max()) * 1.20)
+    right_max = max(0.5, float(plot["ot_hours_per_person_day"].max()) * 1.55)
+    fig.update_yaxes(title_text=left_title, range=[0, left_max],
+                     gridcolor="rgba(110, 125, 150, .13)", zeroline=False,
+                     secondary_y=False)
+    fig.update_yaxes(title_text="인당 일평균 초과근무 (h/인일)", range=[0, right_max],
+                     showgrid=False, zeroline=False, secondary_y=True)
+    fig.update_layout(
+        barmode="stack", height=380, margin=dict(l=5, r=15, t=55, b=20),
+        plot_bgcolor="#FFFFFF", paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.04,
+                    xanchor="left", x=0, font=dict(size=11)),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(title_text="팀", showgrid=False)
+    return fig
+
+
 def file_download(frame: pd.DataFrame, filename: str, label: str) -> None:
     st.download_button(label, frame.to_csv(index=False).encode("utf-8-sig"),
                        file_name=filename, mime="text/csv")
@@ -424,16 +492,24 @@ with org_tab:
         fig.update_traces(marker_color="#E85E59", texttemplate="%{text:.1f}%", textposition="outside")
         st.plotly_chart(chart_layout(fig, 350), use_container_width=True)
     with right:
-        st.subheader("팀별 업무시간 구성")
-        work_mix = current.groupby("team", as_index=False)[["project_minutes", "general_minutes"]].sum()
-        work_mix = work_mix.melt(id_vars="team", var_name="업무 구분", value_name="분")
-        work_mix["시간"] = work_mix["분"] / 60
-        work_mix["업무 구분"] = work_mix["업무 구분"].map(
-            {"project_minutes": "프로젝트", "general_minutes": "일반업무"})
-        fig = px.bar(work_mix, x="team", y="시간", color="업무 구분", barmode="stack",
-                     color_discrete_map={"프로젝트": "#5278D9", "일반업무": "#E2B23A"},
-                     labels={"team": "팀", "시간": "시간(h)"})
-        st.plotly_chart(chart_layout(fig, 350), use_container_width=True)
+        st.subheader("팀별 업무시간 구성·초과근무")
+        display_basis = st.radio(
+            "업무시간 표시 기준",
+            ["팀 총 업무시간", "인당 일평균 업무시간"],
+            horizontal=True,
+            key="team_worktime_basis",
+        )
+        team_work = summary_aggregate(current, ["team"])
+        fig = team_worktime_chart(
+            team_work, per_person_day=(display_basis == "인당 일평균 업무시간")
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "파란색·노란색 막대는 각각 프로젝트·일반업무 시간이며, "
+            "빨간선은 인당 기록일 기준 일평균 초과근무(h)입니다. "
+            "**초과근무는 막대 시간에 이미 포함되므로 추가로 합산하지 않습니다.** "
+            "팀 규모가 다른 경우 '인당 일평균 업무시간'으로 비교하세요."
+        )
 
 with report_tab:
     st.subheader(f"[{chosen_month}] 주차별 인력 가동률 분포")
