@@ -1,0 +1,7 @@
+date,holiday_flag,week,team,part,user_name,project_code,hours,year_month,project_ratio,overtime_hours,available_hours,utilization
+2026-09-01,0,36,Platform,Backend,Alex,PRJ_ALPHA,6.0,2026-09,0.75,0.0,8.0,0.75
+2026-09-01,0,36,Platform,Backend,Alex,GENERAL,2.0,2026-09,0.25,0.0,8.0,0.75
+2026-09-01,0,36,Platform,Frontend,Bella,PRJ_ALPHA,8.0,2026-09,1.00,0.0,8.0,1.00
+2026-09-01,0,36,Data,Analytics,Chris,PRJ_BETA,9.0,2026-09,1.00,1.0,8.0,1.125
+2026-09-01,0,36,Data,Platform,Dana,PRJ_BETA,7.0,2026-09,0.875,0.0,8.0,0.875
+2026-09-01,0,36,Data,Platform,Dana,GENERAL,1.0,2026-09,0.125,0.0,8.0,0.875
