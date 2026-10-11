@@ -398,6 +398,137 @@ def team_worktime_chart(team_report: pd.DataFrame, per_person_day: bool = False)
     return fig
 
 
+
+def weekly_utilization_distribution_chart(
+    current: pd.DataFrame,
+    average_mode: str = "팀별 평균선",
+) -> go.Figure:
+    """Show individual weekly spread alongside team/overall weighted means.
+
+    Boxes: employee-week utilization = weekly project minutes / weekly available minutes.
+    Lines: group ratio-of-sums = all project minutes / all available minutes.
+    Numeric x offsets align each team's mean exactly above its corresponding box.
+    """
+    employee_weeks = summary_aggregate(
+        current, ["week_no", "team", "user_id", "name"]
+    )
+    team_weeks = summary_aggregate(current, ["week_no", "team"])
+    overall_weeks = summary_aggregate(current, ["week_no"])
+
+    weeks = sorted(int(x) for x in employee_weeks["week_no"].dropna().unique())
+    teams = sorted(str(x) for x in employee_weeks["team"].dropna().unique())
+
+    color_map = {
+        "Data": "#4775D1", "Platform": "#75B8F5",
+        "Product": "#E76463", "Quality": "#F29A9A",
+    }
+    fallback = px.colors.qualitative.Safe
+    colors = {
+        team: color_map.get(team, fallback[index % len(fallback)])
+        for index, team in enumerate(teams)
+    }
+    width = min(0.17, 0.73 / max(len(teams), 1))
+    offsets = {
+        team: (index - (len(teams) - 1) / 2) * width
+        for index, team in enumerate(teams)
+    }
+    show_team_averages = average_mode in ("팀별 평균선", "전체+팀별 평균선")
+    show_overall_average = average_mode in ("전체 평균선", "전체+팀별 평균선")
+
+    fig = go.Figure()
+    for team in teams:
+        color = colors[team]
+        fill = f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.27)"
+        team_rows = employee_weeks[employee_weeks["team"] == team]
+        for week in weeks:
+            values = team_rows.loc[team_rows["week_no"] == week]
+            if values.empty:
+                continue
+            x_pos = week + offsets[team]
+            fig.add_trace(go.Box(
+                x=[x_pos] * len(values),
+                y=values["utilization_pct"].tolist(),
+                name=f"{team} 분포", legendgroup=team,
+                showlegend=(not show_team_averages and week == weeks[0]),
+                width=width * 0.84,
+                marker=dict(color=color, size=6),
+                fillcolor=fill,
+                line=dict(color=color, width=1.6),
+                boxpoints="outliers",
+                customdata=values[["name"]].to_numpy(),
+                hovertemplate=(f"{week}주차 · {team}"
+                               "<br>개인 가동률 %{y:.1f}%<extra></extra>"),
+            ))
+
+        if show_team_averages:
+            means = team_weeks.loc[team_weeks["team"] == team].set_index("week_no")
+            x_positions, y_values, people = [], [], []
+            for week in weeks:
+                x_positions.append(week + offsets[team])
+                if week in means.index:
+                    record = means.loc[week]
+                    y_values.append(float(record["utilization_pct"]))
+                    people.append(int(record["headcount"]))
+                else:
+                    y_values.append(None)
+                    people.append(0)
+            fig.add_trace(go.Scatter(
+                x=x_positions, y=y_values, mode="lines+markers",
+                name=f"{team} 평균", legendgroup=team,
+                line=dict(color=color, width=2.6),
+                marker=dict(size=9, color="#FFFFFF", line=dict(color=color, width=2.7)),
+                customdata=people,
+                hovertemplate=("%{x:.0f}주차 · " + team
+                               + "<br>팀 평균 가동률 %{y:.1f}%"
+                               + "<br>기록 인원 %{customdata}명<extra></extra>"),
+                connectgaps=False,
+            ))
+
+    if show_overall_average:
+        overall = overall_weeks.set_index("week_no")
+        global_means = [float(overall.loc[week, "utilization_pct"])
+                        if week in overall.index else None for week in weeks]
+        fig.add_trace(go.Scatter(
+            x=weeks, y=global_means, mode="lines+markers",
+            name="전체 평균", legendgroup="overall",
+            line=dict(color="#22304A", width=3.3, dash="dot"),
+            marker=dict(symbol="diamond", size=9, color="#22304A"),
+            hovertemplate="%{x}주차<br>전체 평균 가동률 %{y:.1f}%<extra></extra>",
+            connectgaps=False,
+        ))
+
+    combined_pct = employee_weeks["utilization_pct"].tolist() + team_weeks["utilization_pct"].tolist()
+    if show_overall_average:
+        combined_pct += overall_weeks["utilization_pct"].tolist()
+    if combined_pct:
+        min_v, max_v = min(combined_pct), max(combined_pct)
+        y_min = max(0, (int((min_v - 7) // 10)) * 10)
+        y_max = max(110, (int((max_v + 14) // 10)) * 10)
+    else:
+        y_min, y_max = 0, 120
+
+    fig.add_hrect(y0=80, y1=100, fillcolor="rgba(71, 190, 111, 0.09)",
+                  line_width=0, layer="below")
+    fig.update_layout(
+        height=495, margin=dict(l=10, r=18, t=58, b=32),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#FFFFFF",
+        boxmode="overlay", hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.04,
+                    xanchor="left", x=0, font=dict(size=11)),
+    )
+    fig.update_xaxes(
+        title_text="주차", tickmode="array", tickvals=weeks,
+        ticktext=[f"{w}주차" for w in weeks],
+        range=[min(weeks) - 0.63, max(weeks) + 0.63],
+        showgrid=False, zeroline=False,
+    )
+    fig.update_yaxes(
+        title_text="주간 프로젝트 가동률 (%)", ticksuffix="%",
+        range=[y_min, y_max], gridcolor="rgba(120, 135, 155, .16)",
+        zeroline=False,
+    )
+    return fig
+
 def file_download(frame: pd.DataFrame, filename: str, label: str) -> None:
     st.download_button(label, frame.to_csv(index=False).encode("utf-8-sig"),
                        file_name=filename, mime="text/csv")
@@ -513,12 +644,22 @@ with org_tab:
 
 with report_tab:
     st.subheader(f"[{chosen_month}] 주차별 인력 가동률 분포")
-    weekly_users = summary_aggregate(current, ["week_no", "team", "user_id", "name"])
-    weekly_users["week"] = weekly_users["week_no"].astype(str) + "주차"
-    fig = px.box(weekly_users, x="week", y="utilization_pct", color="team", points="outliers",
-                 hover_data=["name"], labels={"week": "주차", "utilization_pct": "주간 가동률 (%)", "team": "팀"})
-    st.plotly_chart(chart_layout(fig, 430), use_container_width=True)
-    st.caption("각 점/상자는 개인별 주간 프로젝트 투입시간을 해당 주 가용시간으로 나눈 분포입니다. 월 경계의 부분 주도 포함합니다.")
+    avg_mode = st.radio(
+        "평균선 표시",
+        ["팀별 평균선", "전체 평균선", "전체+팀별 평균선"],
+        horizontal=True,
+        key="weekly_utilization_average_mode",
+        help="팀별 평균선은 각 팀의 주차별 가동률 흐름을, 전체 평균선은 선택된 팀 전체의 흐름을 보여줍니다.",
+    )
+    fig = weekly_utilization_distribution_chart(current, average_mode=avg_mode)
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(
+        "**상자:** 구성원별 주간 프로젝트 가동률 분포(상자의 가로선은 중앙값) · "
+        "**실선:** 팀별 평균 가동률 · **진한 점선:** 선택 팀 전체 평균 가동률. "
+        "평균은 프로젝트 총 투입시간 ÷ 총 가용시간으로 계산합니다. "
+        "초록색 80~100%는 참고 구간이며 과부하·성과를 자동 판정하지 않습니다. "
+        "월 경계에 걸친 부분 주차가 포함될 수 있습니다."
+    )
 
     st.subheader("팀별 운영 현황")
     team_month = summary_aggregate(current, ["team"]).sort_values("utilization_pct", ascending=False)
@@ -538,8 +679,9 @@ with report_tab:
     st.markdown(f"""
 - **전체:** 프로젝트 {month_project_hours:,.1f}시간 투입, 기록 보유 인원 {recorded_people}명, 평균 가동률 {util:.1f}%
 - **조직 비교:** {top_name}의 가동률이 {top_team['utilization_pct']:.1f}%로 가장 높고, {low_team['team']}은 {low_team['utilization_pct']:.1f}%입니다.
-- **추가 확인:** 데모 관련 투입공수와 초과근무가 집중된 팀·담당자를 확인하고, 데모 종료 후 가동률 회복 여부를 점검할 필요가 있음. 초과근무가 지속되는 경우 잔여 업무 일정 조정 및 인력 재배분 검토 필요.
+- **추가 확인:** 높은 가동률만으로 과부하를 단정하지 않고, 프로젝트 중복 투입·일반업무·조직 이동·입력 누락 등을 함께 확인해야 합니다.
 """)
+    st.caption("이 요약은 AI가 작성한 평가가 아니라, 합산 데이터로 생성한 규칙 기반 문장입니다.")
     file_download(display, f"team_report_{chosen_month}.csv", "팀별 요약 CSV 저장")
 
 with project_tab:
