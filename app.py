@@ -538,9 +538,8 @@ with report_tab:
     st.markdown(f"""
 - **전체:** 프로젝트 {month_project_hours:,.1f}시간 투입, 기록 보유 인원 {recorded_people}명, 평균 가동률 {util:.1f}%
 - **조직 비교:** {top_name}의 가동률이 {top_team['utilization_pct']:.1f}%로 가장 높고, {low_team['team']}은 {low_team['utilization_pct']:.1f}%입니다.
-- **추가 확인:** 높은 가동률만으로 과부하를 단정하지 않고, 프로젝트 중복 투입·일반업무·조직 이동·입력 누락 등을 함께 확인해야 합니다.
+- **추가 확인:** 데모 관련 투입공수와 초과근무가 집중된 팀·담당자를 확인하고, 데모 종료 후 가동률 회복 여부를 점검할 필요가 있음. 초과근무가 지속되는 경우 잔여 업무 일정 조정 및 인력 재배분 검토 필요.
 """)
-    st.caption("이 요약은 AI가 작성한 평가가 아니라, 합산 데이터로 생성한 규칙 기반 문장입니다.")
     file_download(display, f"team_report_{chosen_month}.csv", "팀별 요약 CSV 저장")
 
 with project_tab:
